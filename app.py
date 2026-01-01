@@ -1,11 +1,12 @@
 import streamlit as st
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
+import re
 
-st.set_page_config(page_title="Code Generator", page_icon="💻", layout="centered")
+st.set_page_config(page_title="AI Code Generator", page_icon="💻")
 
 st.title("💻 AI Code Generator")
-st.write("Enter your programming task below. The model will output **only code** — no text, no explanations.")
+st.caption("Outputs ONLY executable code. No comments, docstrings, or explanations.")
 
 @st.cache_resource
 def load_model():
@@ -18,40 +19,51 @@ tokenizer, model = load_model()
 
 prompt = st.text_area(
     "📝 Enter your coding task",
-    placeholder="Example: Write a Python program to check if a number is prime"
+    placeholder="Example: Write a Python function to check if a number is prime"
 )
-
-temperature = st.slider("Creativity", 0.0, 1.5, 0.2, 0.1)
 
 if st.button("🚀 Generate Code"):
     if not prompt.strip():
-        st.warning("Please enter a prompt first.")
+        st.warning("Please enter a task first.")
     else:
         with st.spinner("Generating code..."):
-            system_prompt = (
-                "You are an AI code assistant. "
-                "Output ONLY executable code. "
-                "Do NOT output explanations, comments, markdown formatting, or text. "
-                "Respond only with code."
-            )
 
-            full_prompt = system_prompt + "\n\nUser task:\n" + prompt + "\n\nAnswer:\n"
+            system_prompt = """
+You STRICTLY output ONLY valid Python code.
+Do NOT use comments.
+Do NOT use docstrings.
+Do NOT use triple quotes.
+Do NOT explain.
+Output code only.
+"""
+
+            full_prompt = f"{system_prompt}\nTask: {prompt}\nAnswer:\n"
 
             inputs = tokenizer(full_prompt, return_tensors="pt")
 
-            # 🚫 No max_length or max_new_tokens specified
-            output_tokens = model.generate(
+            output = model.generate(
                 **inputs,
                 eos_token_id=tokenizer.eos_token_id,
-                do_sample=True,
-                temperature=temperature
+                do_sample=False,         # deterministic -> fewer broken snippets
+                temperature=0.0,
+                repetition_penalty=1.05
             )
 
-            code = tokenizer.decode(output_tokens[0], skip_special_tokens=True)
+            raw = tokenizer.decode(output[0], skip_special_tokens=True)
 
-            # remove system prompt portion if echoed
-            if "Answer:" in code:
-                code = code.split("Answer:")[-1].strip()
+            # --- Clean output ---
+            # Remove everything before "Answer:"
+            if "Answer:" in raw:
+                raw = raw.split("Answer:")[-1]
+
+            # Remove triple quotes if any left
+            raw = raw.replace('"""', "").replace("'''", "")
+
+            # Remove markdown fences if present
+            raw = raw.replace("```python", "").replace("```", "")
+
+            # Trim leading/trailing whitespace
+            code = raw.strip()
 
         st.subheader("✅ Generated Code")
         st.code(code, language="python")
