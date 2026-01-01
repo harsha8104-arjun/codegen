@@ -1,22 +1,24 @@
 import streamlit as st
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
+from llama_cpp import Llama
+import re
 
 # ---------------- Streamlit UI ----------------
-st.set_page_config(page_title="AI Code Generator", page_icon="💻", layout="centered")
+st.set_page_config(page_title="StarCoder2 Code Generator", page_icon="💻", layout="centered")
 
-st.title("💻 AI Code Generator")
+st.title("💻 StarCoder2 Code Generator")
 st.caption("Outputs ONLY executable Python code. No comments, docstrings, or explanations.")
 
 # ---------------- Load Model ----------------
 @st.cache_resource
 def load_model():
-    model_name = "Salesforce/codegen-350M-mono"  # small model for cloud deployment
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(model_name)
-    return tokenizer, model
+    return Llama.from_pretrained(
+        repo_id="bigcode/starcoder2",
+        filename="starcoder2-q4_k_m.gguf",  # your downloaded GGUF file
+        n_ctx=8192
+    )
 
-tokenizer, model = load_model()
+with st.spinner("Loading StarCoder2 model..."):
+    llm = load_model()
 
 # ---------------- User Input ----------------
 prompt = st.text_area(
@@ -25,9 +27,8 @@ prompt = st.text_area(
     height=140
 )
 
-st.sidebar.header("⚙️ Generation Settings")
 temperature = st.sidebar.slider("Creativity (temperature)", 0.0, 1.0, 0.0, 0.05)
-max_tokens = st.sidebar.slider("Max Tokens", 50, 500, 200, 10)
+max_tokens = st.sidebar.slider("Max Tokens", 50, 2000, 512, 50)
 
 # ---------------- Generate Code ----------------
 if st.button("🚀 Generate Code"):
@@ -36,7 +37,6 @@ if st.button("🚀 Generate Code"):
     else:
         with st.spinner("Generating code..."):
 
-            # System prompt to enforce code-only output
             system_prompt = """
 You STRICTLY output ONLY valid Python code.
 Do NOT use comments.
@@ -48,29 +48,24 @@ Output code only.
 
             full_prompt = f"{system_prompt}\nTask: {prompt}\nAnswer:\n"
 
-            # Tokenize
-            inputs = tokenizer(full_prompt, return_tensors="pt")
-
-            # Generate
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=max_tokens,
-                temperature=temperature,
-                do_sample=False,
-                eos_token_id=tokenizer.eos_token_id
+            response = llm.create_chat_completion(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=temperature
             )
 
-            # Decode
-            raw = tokenizer.decode(outputs[0], skip_special_tokens=True)
+            raw = response["choices"][0]["message"]["content"]
 
-            # Clean output
+            # --- Clean output ---
             if "Answer:" in raw:
                 raw = raw.split("Answer:")[-1]
 
             raw = raw.replace('"""', "").replace("'''", "")
             raw = raw.replace("```python", "").replace("```", "")
 
-            # Remove all comment lines
+            # Remove lines that start with #
             lines = raw.split("\n")
             clean_lines = [line for line in lines if not line.strip().startswith("#")]
             code = "\n".join(clean_lines).strip()
