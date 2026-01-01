@@ -41,7 +41,7 @@ Output code only.
 
             inputs = tokenizer(full_prompt, return_tensors="pt")
 
-           outputs = model.generate(**inputs, max_new_tokens=200,temperature=0.0,do_sample=False,eos_token_id=tokenizer.eos_token_id)
+            outputs = model.generate(**inputs, max_new_tokens=200,temperature=0.0,do_sample=False,eos_token_id=tokenizer.eos_token_id)
 
             raw = tokenizer.decode(output[0], skip_special_tokens=True)
 
